@@ -1,0 +1,78 @@
+export REGION=eu-west-1
+export SECURITY_GROUP_ID=sg-0010f9778dc2e6fb2
+export SUBNET_ID=subnet-cbf5bdbc
+
+aws configure set region $REGION
+
+aws logs create-log-group --log-group-name awslogs-tf-ecs
+
+aws ecs create-cluster --cluster-name fargate-demo
+
+ecs-cli configure --cluster fargate-demo --region $REGION
+
+#Not supported with this container (No AVX support on Fargate)
+#aws ecs register-task-definition --cli-input-json file://training-fargate-tf.json
+
+# Unofficial DL container with TF 1.12
+aws ecs register-task-definition --cli-input-json file://inference-fargate-tf112.json
+
+# Official DL containers with MXNet 1.4
+aws ecs register-task-definition --cli-input-json file://training-fargate-mxnet.json
+aws ecs register-task-definition --cli-input-json file://inference-fargate-mxnet.json
+
+#aws ecs run-task --cluster fargate-demo --task-definition training-fargate-tf:1 --count 1 --launch-type FARGATE \
+#                 --network-configuration "awsvpcConfiguration={subnets=[$SUBNET_ID], \
+#                                          securityGroups=[$SECURITY_GROUP_ID], \
+#                                          assignPublicIp=ENABLED}"
+
+# Run MXNet training on CPU
+aws ecs run-task --cluster fargate-demo --task-definition training-fargate-mxnet:1 --count 1 --launch-type FARGATE \
+                 --network-configuration "awsvpcConfiguration={subnets=[$SUBNET_ID], \
+                                          securityGroups=[$SECURITY_GROUP_ID], \
+                                          assignPublicIp=ENABLED}"
+
+export TRAINING_TASK_ID=
+
+ecs-cli logs --task-id $TRAINING_TASK_ID | grep -v ^$
+
+# Run TF inference on CPU
+aws ecs run-task --cluster fargate-demo --task-definition inference-fargate-tf112:1 --count 1 --launch-type FARGATE \
+                 --network-configuration "awsvpcConfiguration={subnets=[$SUBNET_ID], \
+                                          securityGroups=[$SECURITY_GROUP_ID], \
+                                          assignPublicIp=ENABLED}"
+
+# Run MXNet inference on CPU
+#aws ecs run-task --cluster fargate-demo --task-definition inference-fargate-mxnet:1 --count 1 --launch-type FARGATE \
+#                 --network-configuration "awsvpcConfiguration={subnets=[$SUBNET_ID], \
+#                                          securityGroups=[$SECURITY_GROUP_ID], \
+#                                          assignPublicIp=ENABLED}"
+
+aws ecs create-service --cluster fargate-demo \
+          --service-name inference-fargate-mxnet \
+          --task-definition inference-fargate-mxnet:1 \
+          --desired-count 1 \
+          --launch-type FARGATE \
+          --network-configuration "awsvpcConfiguration={subnets=[$SUBNET_ID], \
+                                          securityGroups=[$SECURITY_GROUP_ID], \
+                                          assignPublicIp=ENABLED}" 
+
+ecs-cli ps 
+
+export INFERENCE_IP=
+export INFERENCE_TASK_ID=
+
+ecs-cli logs --task-id $INFERENCE_TASK_ID | grep -v ^$
+
+curl -O https://s3.amazonaws.com/model-server/inputs/kitten.jpg
+
+curl -X POST http://$INFERENCE_IP:8080/predictions/squeezenet -T kitten.jpg
+
+# Scale the service
+aws ecs update-service --cluster fargate-demo --service inference-fargate-mxnet --desired-count 2
+
+# Delete the service
+aws ecs update-service --cluster fargate-demo --service inference-fargate-mxnet --desired-count 0
+aws ecs delete-service --cluster fargate-demo --service inference-fargate-mxnet
+
+# Delete the cluster
+aws ecs delete-cluster --cluster fargate-demo

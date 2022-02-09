@@ -1,0 +1,46 @@
+{
+	"requiresCompatibilities": [
+		"EC2"
+	],
+	"containerDefinitions": [{
+		"command": [
+			"mkdir -p /test && cd /test && git clone -b r1.13 https://github.com/tensorflow/serving.git && tensorflow_model_server --port=8500 --rest_api_port=8501 --model_name=saved_model_half_plus_two_cpu --model_base_path=/test/serving/tensorflow_serving/servables/tensorflow/testdata/saved_model_half_plus_two_cpu"
+		],
+		"entryPoint": [
+			"sh",
+			"-c"
+		],
+		"name": "EC2TFInference",
+		"image": "763104351884.dkr.ecr.eu-west-1.amazonaws.com/tensorflow-inference:1.13-cpu-py36-ubuntu16.04",
+		"memory": 8111,
+		"cpu": 256,
+		"essential": true,
+		"portMappings": [{
+				"hostPort": 8500,
+				"protocol": "tcp",
+				"containerPort": 8500
+			},
+			{
+				"hostPort": 8501,
+				"protocol": "tcp",
+				"containerPort": 8501
+			},
+			{
+				"containerPort": 80,
+				"protocol": "tcp"
+			}
+		],
+		"logConfiguration": {
+			"logDriver": "awslogs",
+			"options": {
+				"awslogs-group": "awslogs-tf-ecs",
+				"awslogs-region": "eu-west-1",
+				"awslogs-stream-prefix": "inference"
+			}
+		}
+	}],
+	"volumes": [],
+	"networkMode": "bridge",
+	"placementConstraints": [],
+	"family": "inference"
+}

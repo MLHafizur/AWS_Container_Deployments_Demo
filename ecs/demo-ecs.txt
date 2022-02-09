@@ -1,0 +1,96 @@
+export REGION=eu-west-1
+export AMI_ID_GPU=ami-0638eba79fcfe776e    # ECS-optimized AMI with GPU support in eu-west-1
+export AMI_ID_CPU=ami-09cd8db92c6bf3a84    # ECS-optimized AMI with CPU support in eu-west-1
+export SECURITY_GROUP_ID=sg-0010f9778dc2e6fb2
+export ROLE_NAME=ecsInstanceRole
+export KEY_NAME=admin
+export KEY_PAIR=~/.ssh/admin.pem
+export SUBNET_ID=subnet-cbf5bdbc
+
+aws configure set region $REGION
+
+aws logs create-log-group --log-group-name awslogs-tf-ecs
+
+aws ecs create-cluster --cluster-name ecs-demo
+
+# 4 p2.xlarge spot instances
+# ECS-optimized AMI with GPU support, default VPC
+aws ec2 run-instances --image-id $AMI_ID_GPU \
+                       --count 4 \
+                       --instance-type p2.xlarge \
+                       --instance-market-options '{"MarketType":"spot"}' \
+                       --tag-specifications 'ResourceType=instance,Tags=[{Key=Name,Value=ecs-demo}]' \
+                       --key-name $KEY_NAME \
+                       --security-group-ids $SECURITY_GROUP_ID \
+                       --iam-instance-profile Name=$ROLE_NAME \
+                       --user-data file://user-data.txt
+
+# 2 c5.2xlarge spot instances
+# ECS-optimized AMI, default VPC, different subnet
+aws ec2 run-instances --image-id ami-09cd8db92c6bf3a84 \
+                       --count 2 \
+                       --instance-type c5.2xlarge \
+                       --instance-market-options '{"MarketType":"spot"}' \
+                       --tag-specifications 'ResourceType=instance,Tags=[{Key=Name,Value=ecs-demo}]' \
+                       --key-name $KEY_NAME \
+                       --security-group-ids $SECURITY_GROUP_ID \
+                       --iam-instance-profile Name=$ROLE_NAME \
+                       --user-data file://user-data.txt \
+		                   --subnet $SUBNET_ID
+
+aws ecs register-task-definition --cli-input-json file://training.json
+
+aws ecs register-task-definition --cli-input-json file://inference.json
+
+ecs-cli configure --cluster ecs-demo --region $REGION
+
+ecs-cli ps
+
+# Run 4 training tasks without any constraint (the GPU requirement is in the task definition)
+aws ecs run-task --cluster ecs-demo --task-definition training:1 --count 4
+
+ecs-cli ps
+
+export TRAINING_TASK_ID=
+
+ecs-cli logs --task-id $TRAINING_TASK_ID | grep -v ^$
+
+# Create inference service, starting with 1 initial task
+# Run it on c5 instance, and spread tasks evenly
+aws ecs create-service --cluster ecs-demo \
+          --service-name inference-cpu \
+          --task-definition inference:1 \
+          --desired-count 1 \
+		      --placement-constraints type="memberOf",expression="attribute:ecs.instance-type =~ c5.*" \
+		      --placement-strategy field="instanceId",type="spread"
+
+ecs-cli ps
+
+export INFERENCE_IP=
+export INFERENCE_TASK_ID=
+
+ecs-cli logs --task-id $INFERENCE_TASK_ID | grep -v ^$
+
+curl -d '{"instances": [1.0, 2.0, 5.0]}' -X POST http://$INFERENCE_IP:8501/v1/models/saved_model_half_plus_two_cpu:predict
+
+# Scale service to 2 tasks
+aws ecs update-service --cluster ecs-demo --service inference-cpu --desired-count 2
+
+ecs-cli ps
+
+# Scale service down and delete it
+aws ecs update-service --cluster ecs-demo --service inference-cpu --desired-count 0
+aws ecs delete-service --cluster ecs-demo --service inference-cpu
+
+ecs-cli ps
+
+# Get the instance ids
+export INSTANCE_IDS=`aws ec2 describe-instances --filters "Name=tag:Name,Values=ecs-demo" "Name=instance-state-name,Values=running" --query "Reservations[*].Instances[*].InstanceId" --output text`
+
+echo $INSTANCE_IDS
+
+# Terminate the instances
+aws ec2 terminate-instances --instance-ids `echo $INSTANCE_IDS | xargs`
+
+# Delete the cluster
+aws ecs delete-cluster --cluster ecs-demo

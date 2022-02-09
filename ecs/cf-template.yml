@@ -1,0 +1,111 @@
+AWSTemplateFormatVersion: 2010-09-09
+
+# ECS AMIs:
+# https://docs.aws.amazon.com/AmazonECS/latest/developerguide/ecs-optimized_AMI.html
+
+Parameters:
+  ClusterName:
+    Description: Cluster name 
+    Type: String
+    Default: ecs-demo2
+  InstanceRole:
+    Description: IAM role for the cluster instances
+    Type: String
+    Default: ecsInstanceRole
+  AmiIdCpu:
+    Description: AMI id for CPU instances
+    Type: String
+    Default: ami-0c5abd45f676aab4f # ECS-optimized CPU AMI in eu-west-1
+  InstanceTypeCpu:
+    Description: instance type for CPU instances
+    Type: String
+    Default: c5.2xlarge
+  InstanceCountCpu:
+    Description: number of CPU instances
+    Type: String
+    Default: 2
+  AmiIdGpu:
+    Description: AMI id for GPU instances
+    Type: String
+    Default: ami-0ba990e211024cbff # ECS-optimized GPU AMI in eu-west-1
+  InstanceTypeGpu:
+    Description: instance type for GPU instances
+    Type: String
+    Default: p2.xlarge
+  InstanceCountGpu:
+    Description: number of GPU instances
+    Type: String
+    Default: 4
+  KeyName:
+    Description: name of SSH key for cluster instances
+    Type: String
+    Default: admin
+  SecurityGroupId:
+    Description: id of security group for cluster instances
+    Type: String
+    Default: sg-0010f9778dc2e6fb2
+
+Resources:
+  Cluster:
+    Type: AWS::ECS::Cluster
+    Properties:
+      ClusterName: !Ref ClusterName
+
+  LaunchConfigurationCpu:
+    Type: AWS::AutoScaling::LaunchConfiguration
+    Properties:
+      IamInstanceProfile: !Ref InstanceRole
+      ImageId: !Ref AmiIdCpu
+      InstanceType: !Ref InstanceTypeCpu
+      KeyName: !Ref KeyName
+      SecurityGroups:
+        - !Ref SecurityGroupId
+      SpotPrice: 0.5
+      UserData: 
+        Fn::Base64: !Sub |
+          #!/bin/bash
+          echo ECS_CLUSTER=${ClusterName} >> /etc/ecs/ecs.config
+
+  LaunchConfigurationGpu:
+    Type: AWS::AutoScaling::LaunchConfiguration
+    Properties:
+      IamInstanceProfile: !Ref InstanceRole
+      ImageId: !Ref AmiIdGpu
+      InstanceType: !Ref InstanceTypeGpu
+      KeyName: !Ref KeyName
+      SecurityGroups:
+        - !Ref SecurityGroupId
+      SpotPrice: 0.5
+      UserData: 
+        Fn::Base64: !Sub |
+          #!/bin/bash
+          echo ECS_CLUSTER=${ClusterName} >> /etc/ecs/ecs.config
+
+  AutoscalingGroupCpu:
+    Type: AWS::AutoScaling::AutoScalingGroup
+    Properties:
+      AvailabilityZones: !GetAZs
+      LaunchConfigurationName: !Ref LaunchConfigurationCpu
+      MaxSize: !Ref InstanceCountCpu
+      MinSize: !Ref InstanceCountCpu
+      Tags:
+        -
+          Key: Name
+          Value: !Sub |
+              ${ClusterName}-cpu
+          PropagateAtLaunch: true
+
+  AutoscalingGroupGpu:
+    Type: AWS::AutoScaling::AutoScalingGroup
+    Properties:
+      AvailabilityZones: !GetAZs
+      LaunchConfigurationName: !Ref LaunchConfigurationGpu
+      MaxSize: !Ref InstanceCountGpu
+      MinSize: !Ref InstanceCountGpu
+      Tags:
+        -
+          Key: Name
+          Value: !Sub |
+              ${ClusterName}-gpu
+          PropagateAtLaunch: true
+

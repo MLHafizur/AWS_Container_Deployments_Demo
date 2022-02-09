@@ -1,0 +1,39 @@
+{
+	"requiresCompatibilities": [
+		"FARGATE"
+	],
+        "memory": "8192",
+        "cpu": "4096",
+	"containerDefinitions": [{
+		"command": [
+			"mxnet-model-server --start --mms-config /home/model-server/config.properties --models squeezenet=https://s3.amazonaws.com/model-server/models/squeezenet_v1.1/squeezenet_v1.1.model"
+		],
+		"name": "mxnet-inference-container",
+		"image": "763104351884.dkr.ecr.eu-west-1.amazonaws.com/mxnet-inference:1.4.0-cpu-py36-ubuntu16.04",
+		"essential": true,
+		"portMappings": [{
+				"hostPort": 8081,
+				"protocol": "tcp",
+				"containerPort": 8081
+			},
+			{
+				"hostPort": 8080,
+				"protocol": "tcp",
+				"containerPort": 8080
+			}
+		],
+		"logConfiguration": {
+			"logDriver": "awslogs",
+			"options": {
+				"awslogs-group": "awslogs-tf-ecs",
+				"awslogs-region": "eu-west-1",
+				"awslogs-stream-prefix": "squeezenet"
+			}
+		}
+	}],
+	"volumes": [],
+	"networkMode": "awsvpc",
+	"placementConstraints": [],
+	"family": "inference-fargate-mxnet",
+        "executionRoleArn": "arn:aws:iam::613904931467:role/ecsTaskExecutionRole"
+}

@@ -1,0 +1,40 @@
+{
+      "requiresCompatibilities": [
+        "FARGATE"
+      ],
+      "memory": "8192",
+      "cpu": "4096",
+      "containerDefinitions": [
+        {
+          "command": [
+                "git clone -b 1.4.0 https://github.com/apache/incubator-mxnet.git && python /incubator-mxnet/example/image-classification/train_mnist.py"
+             ],
+             "entryPoint": [
+                "sh",
+                "-c"
+             ],
+          "name": "TFconsole",
+          "image":"763104351884.dkr.ecr.us-east-1.amazonaws.com/mxnet-training:1.4.0-cpu-py36-ubuntu16.04",
+          "essential": true,
+          "portMappings": [
+            {
+              "containerPort": 80,
+              "protocol": "tcp"
+            }
+          ],
+          "logConfiguration": {
+              "logDriver": "awslogs",
+              "options": {
+                  "awslogs-group": "awslogs-tf-ecs",
+                  "awslogs-region": "eu-west-1",
+                  "awslogs-stream-prefix": "training"
+              }
+          }
+        }
+      ],
+      "volumes": [],
+      "networkMode": "awsvpc",
+      "placementConstraints": [],
+      "family": "training-fargate-mxnet",
+      "executionRoleArn": "arn:aws:iam::613904931467:role/ecsTaskExecutionRole"
+    }
